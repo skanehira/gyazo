@@ -80,6 +80,11 @@ func run(args []string) error {
 		return err
 	}
 
+	if generateMarkdownLink {
+		fmt.Println(fmt.Sprintf("![](%s)", image.URL))
+		return nil
+	}
+
 	fmt.Println(image.URL)
 	return nil
 }
@@ -97,14 +102,16 @@ func upload(r io.Reader) (*gyazo.Image, error) {
 }
 
 var (
-	useClipboard bool
+	useClipboard         bool
+	generateMarkdownLink bool
 )
 
 func main() {
 	name := "gyazo"
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.BoolVar(&useClipboard, "c", false, "uplaod from clipboard")
+	fs.BoolVar(&useClipboard, "c", false, "")
+	fs.BoolVar(&generateMarkdownLink, "m", false, "")
 	fs.Usage = func() {
 		fs.SetOutput(os.Stdout)
 		fmt.Printf(`%[1]s - Gyazo CLI
@@ -112,13 +119,17 @@ func main() {
 VERSION: %s
 
 USAGE:
-  $ %[1]s [-c] [<] [file]
+  $ %[1]s [-c] [-m] [<] [file]
+
+DESCRIPTION:
+  -c	upload image from clipboard
+  -m	generate markdown link
 
 EXAMPLE:
   $ %[1]s < image.png
   $ cat image.png | %[1]s
-  $ %[1]s image.png
-  $ %[1]s -c
+  $ %[1]s -m image.png
+  $ %[1]s -c -m
 `, name, version)
 	}
 
