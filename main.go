@@ -57,9 +57,16 @@ func run(args []string) error {
 	}
 
 	if len(args) == 0 {
-		r, err = clipboard.Read()
-		if err != nil {
-			return err
+		if useClipboard {
+			r, err = clipboard.Read()
+			if err != nil {
+				return err
+			}
+		} else {
+			r = os.Stdin
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		r, err = os.Open(args[0])
@@ -89,10 +96,15 @@ func upload(r io.Reader) (*gyazo.Image, error) {
 	return image, nil
 }
 
+var (
+	useClipboard bool
+)
+
 func main() {
 	name := "gyazo"
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.BoolVar(&useClipboard, "c", false, "uplaod from clipboard")
 	fs.Usage = func() {
 		fs.SetOutput(os.Stdout)
 		fmt.Printf(`%[1]s - Gyazo CLI
@@ -100,11 +112,13 @@ func main() {
 VERSION: %s
 
 USAGE:
-  $ %[1]s [file]
+  $ %[1]s [-c] [<] [file]
 
 EXAMPLE:
-  $ %[1]s gorilla.png
-  $ %[1]s 
+  $ %[1]s < image.png
+  $ cat image.png | %[1]s
+  $ %[1]s image.png
+  $ %[1]s -c
 `, name, version)
 	}
 
