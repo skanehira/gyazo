@@ -10,13 +10,22 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/skanehira/clipboard-image/v2"
-	"github.com/tomohiro/go-gyazo/gyazo"
 )
 
 var version = "0.0.1"
 
 var token string
+
+var (
+	useClipboard         bool
+	generateMarkdownLink bool
+	isInteractive        bool
+	title                string
+	desc                 string
+	fileName             string
+)
 
 func getToken() (string, error) {
 	token := os.Getenv("GYAZO_TOKEN")
@@ -56,26 +65,108 @@ func run(args []string) error {
 		os.Exit(1)
 	}
 
-	if len(args) == 0 {
-		if useClipboard {
+	if isInteractive {
+		var (
+			qs      = []*survey.Question{}
+			answers = struct {
+				Filename string
+				Title    string
+				Desc     string
+			}{}
+		)
+
+		prompt := &survey.Select{
+			Message: "Which upload",
+			Options: []string{"specify file", "clipboard"},
+			Default: "red",
+		}
+
+		var selected string
+		if err := survey.AskOne(prompt, &selected); err != nil {
+			return err
+		}
+
+		if selected == "clipboard" {
 			r, err = clipboard.Read()
 			if err != nil {
 				return err
 			}
+			qs = append(qs, &survey.Question{
+				Name: "fileName",
+				Prompt: &survey.Input{
+					Message: "file name:",
+				},
+			})
 		} else {
-			r = os.Stdin
+			qs = append(qs, &survey.Question{
+				Name: "fileName",
+				Prompt: &survey.Input{
+					Message: "Select file:",
+					Suggest: func(path string) []string {
+						files, _ := filepath.Glob(path + "*")
+						return files
+					},
+				},
+			})
+		}
+
+		prompts := []*survey.Question{
+			{
+				Name: "title",
+				Prompt: &survey.Input{
+					Message: "Title:",
+				},
+			},
+			{
+				Name: "desc",
+				Prompt: &survey.Multiline{
+					Message: "Description:",
+				},
+			},
+		}
+		qs = append(qs, prompts...)
+		if err := survey.Ask(qs, &answers); err != nil {
+			return err
+		}
+
+		if r == nil && answers.Filename != "" {
+			r, err = os.Open(answers.Filename)
 			if err != nil {
 				return err
 			}
 		}
+
+		fileName = answers.Filename
+		title = answers.Title
+		desc = answers.Desc
 	} else {
-		r, err = os.Open(args[0])
-		if err != nil {
-			return err
+		if len(args) == 0 {
+			if useClipboard {
+				r, err = clipboard.Read()
+				if err != nil {
+					return err
+				}
+			} else {
+				r = os.Stdin
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			r, err = os.Open(args[0])
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	image, err := upload(r)
+	meta := Meta{
+		Title:    title,
+		Desc:     desc,
+		Filename: fileName,
+	}
+
+	image, err := upload(meta, r)
 	if err != nil {
 		return err
 	}
@@ -89,22 +180,17 @@ func run(args []string) error {
 	return nil
 }
 
-func upload(r io.Reader) (*gyazo.Image, error) {
-	gyazo, err := gyazo.NewClient(token)
+func upload(meta Meta, r io.Reader) (*Image, error) {
+	gyazo, err := NewClient(token)
 	if err != nil {
 		return nil, err
 	}
-	image, err := gyazo.Upload(r)
+	image, err := gyazo.Upload(meta, r)
 	if err != nil {
 		return nil, err
 	}
 	return image, nil
 }
-
-var (
-	useClipboard         bool
-	generateMarkdownLink bool
-)
 
 func main() {
 	name := "gyazo"
@@ -112,6 +198,9 @@ func main() {
 	fs.SetOutput(os.Stderr)
 	fs.BoolVar(&useClipboard, "c", false, "")
 	fs.BoolVar(&generateMarkdownLink, "m", false, "")
+	fs.BoolVar(&isInteractive, "i", false, "")
+	fs.StringVar(&title, "t", "", "")
+	fs.StringVar(&desc, "d", "", "")
 	fs.Usage = func() {
 		fs.SetOutput(os.Stdout)
 		fmt.Printf(`%[1]s - Gyazo CLI
@@ -119,17 +208,20 @@ func main() {
 VERSION: %s
 
 USAGE:
-  $ %[1]s [-c] [-m] [<] [file]
+  $ %[1]s [-cmtdi] [<] [file]
 
 DESCRIPTION:
   -c	upload image from clipboard
   -m	generate markdown link
+  -t	title
+  -d	description
+  -i	interactive mode
 
 EXAMPLE:
   $ %[1]s < image.png
-  $ cat image.png | %[1]s
+  $ %[1]s -c -t "gorilla image"
   $ %[1]s -m image.png
-  $ %[1]s -c -m
+  $ %[1]s -i
 `, name, version)
 	}
 
